@@ -40,6 +40,7 @@ func Token(providerName, host string) (string, error) {
 
 func gitCredential(host string) string {
 	command := exec.Command("git", "credential", "fill")
+	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
 	command.Stdin = strings.NewReader("protocol=https\nhost=" + host + "\n\n")
 	var output bytes.Buffer
 	command.Stdout = &output
