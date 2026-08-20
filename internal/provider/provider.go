@@ -7,6 +7,7 @@ import (
 
 type Provider interface {
 	Name() string
+	Create(context.Context, Repository, CreateInput) (PullRequest, error)
 	FindPullRequest(context.Context, Repository, string) (PullRequest, error)
 	GetPullRequest(context.Context, Repository, int) (PullRequest, error)
 	Inspect(context.Context, Repository, int) (Inspection, error)
@@ -15,6 +16,7 @@ type Provider interface {
 	Threads(context.Context, Repository, int) ([]ReviewThread, error)
 	Reply(context.Context, Repository, int, string, string) (ReviewComment, error)
 	Resolve(context.Context, Repository, int, string) (ReviewThread, error)
+	Approve(context.Context, Repository, int, ApprovalInput) (Review, error)
 	Checks(context.Context, Repository, string) (Checks, error)
 	Merge(context.Context, Repository, int, MergeInput) (MergeResult, error)
 }

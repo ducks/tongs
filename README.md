@@ -76,6 +76,9 @@ GitLab and Gitea repository/PR parsing is implemented, but their API adapters ar
 Global flags precede the command. A PR may be a number or a full URL. If omitted, Tongs finds the open PR for the current git branch.
 
 ```console
+tongs create --title "Add useful feature" --body-file description.md
+tongs create --draft --title "Work in progress" --base main
+
 tongs --pretty inspect 74
 tongs reviews https://github.com/discourse-org/jenkins-job-definitions/pull/74
 tongs checks 74
@@ -85,12 +88,15 @@ tongs edit --body-file - 74 < description.md
 
 tongs reply --thread PRRT_node_id --body-file reply.md 74
 tongs resolve --thread PRRT_node_id 74
+tongs approve --body "Looks good" 74
 
+tongs --dry-run create --title "Preview only"
+tongs --dry-run approve 74
 tongs --dry-run merge --method squash 74
 tongs merge --method squash --yes 74
 ```
 
-Mutating commands support `--dry-run`. Merge additionally requires `--yes` and sends the current head SHA unless an explicit `--sha` is supplied, preventing a stale merge.
+Mutating commands support `--dry-run`. Create uses the current branch and repository default branch unless `--head` or `--base` is supplied. Approve and merge send the current head SHA unless an explicit `--sha` is supplied, preventing stale operations. Merge additionally requires `--yes`.
 
 ## Output contract
 

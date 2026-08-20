@@ -43,6 +43,40 @@ type apiPull struct {
 	} `json:"head"`
 }
 
+type apiReview struct {
+	ID          int64   `json:"id"`
+	NodeID      string  `json:"node_id"`
+	User        apiUser `json:"user"`
+	Body        string  `json:"body"`
+	State       string  `json:"state"`
+	CommitID    string  `json:"commit_id"`
+	SubmittedAt string  `json:"submitted_at"`
+}
+
+func (c *Client) Create(ctx context.Context, repo provider.Repository, input provider.CreateInput) (provider.PullRequest, error) {
+	if input.BaseBranch == "" {
+		var repositoryResponse struct {
+			DefaultBranch string `json:"default_branch"`
+		}
+		if err := c.rest(ctx, http.MethodGet, repoPath(repo), nil, &repositoryResponse); err != nil {
+			return provider.PullRequest{}, err
+		}
+		input.BaseBranch = repositoryResponse.DefaultBranch
+	}
+	payload := map[string]interface{}{
+		"title": input.Title,
+		"body":  input.Body,
+		"head":  input.HeadBranch,
+		"base":  input.BaseBranch,
+		"draft": input.Draft,
+	}
+	var pull apiPull
+	if err := c.rest(ctx, http.MethodPost, repoPath(repo)+"/pulls", payload, &pull); err != nil {
+		return provider.PullRequest{}, err
+	}
+	return mapPull(pull), nil
+}
+
 func (c *Client) FindPullRequest(ctx context.Context, repo provider.Repository, branch string) (provider.PullRequest, error) {
 	query := url.Values{}
 	query.Set("state", "open")
@@ -136,15 +170,6 @@ func (c *Client) Merge(ctx context.Context, repo provider.Repository, number int
 }
 
 func (c *Client) Reviews(ctx context.Context, repo provider.Repository, number int) ([]provider.Review, error) {
-	type apiReview struct {
-		ID          int64   `json:"id"`
-		NodeID      string  `json:"node_id"`
-		User        apiUser `json:"user"`
-		Body        string  `json:"body"`
-		State       string  `json:"state"`
-		CommitID    string  `json:"commit_id"`
-		SubmittedAt string  `json:"submitted_at"`
-	}
 	reviews := []provider.Review{}
 	for page := 1; ; page++ {
 		var response []apiReview
@@ -153,24 +178,44 @@ func (c *Client) Reviews(ctx context.Context, repo provider.Repository, number i
 			return nil, err
 		}
 		for _, review := range response {
-			id := review.NodeID
-			if id == "" {
-				id = strconv.FormatInt(review.ID, 10)
-			}
-			reviews = append(reviews, provider.Review{
-				ID:          id,
-				Author:      provider.User{Login: review.User.Login, Name: review.User.Name},
-				State:       normalizeState(review.State),
-				Body:        review.Body,
-				SubmittedAt: parseTime(review.SubmittedAt),
-				CommitID:    review.CommitID,
-			})
+			reviews = append(reviews, mapReview(review))
 		}
 		if len(response) < 100 {
 			break
 		}
 	}
 	return reviews, nil
+}
+
+func (c *Client) Approve(ctx context.Context, repo provider.Repository, number int, input provider.ApprovalInput) (provider.Review, error) {
+	payload := map[string]string{"event": "APPROVE"}
+	if input.Body != "" {
+		payload["body"] = input.Body
+	}
+	if input.ExpectedSHA != "" {
+		payload["commit_id"] = input.ExpectedSHA
+	}
+	var review apiReview
+	requestPath := repoPath(repo) + "/pulls/" + strconv.Itoa(number) + "/reviews"
+	if err := c.rest(ctx, http.MethodPost, requestPath, payload, &review); err != nil {
+		return provider.Review{}, err
+	}
+	return mapReview(review), nil
+}
+
+func mapReview(review apiReview) provider.Review {
+	id := review.NodeID
+	if id == "" {
+		id = strconv.FormatInt(review.ID, 10)
+	}
+	return provider.Review{
+		ID:          id,
+		Author:      provider.User{Login: review.User.Login, Name: review.User.Name},
+		State:       normalizeState(review.State),
+		Body:        review.Body,
+		SubmittedAt: parseTime(review.SubmittedAt),
+		CommitID:    review.CommitID,
+	}
 }
 
 func mapPull(pull apiPull) provider.PullRequest {
