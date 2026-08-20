@@ -60,7 +60,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	remaining := global.Args()
 	if len(remaining) == 0 {
-		out.usage("missing command; expected inspect, edit, reviews, reply, resolve, checks, or merge")
+		out.usage("missing command; expected create, inspect, edit, reviews, approve, reply, resolve, checks, or merge")
 		return 2
 	}
 
@@ -85,12 +85,16 @@ func newOutput(stdout, stderr io.Writer, pretty bool) output {
 
 func (a *app) run(command string, args []string) error {
 	switch command {
+	case "create":
+		return a.create(args)
 	case "inspect":
 		return a.inspect(args)
 	case "edit":
 		return a.edit(args)
 	case "reviews":
 		return a.reviews(args)
+	case "approve":
+		return a.approve(args)
 	case "reply":
 		return a.reply(args)
 	case "resolve":
@@ -107,12 +111,7 @@ func (a *app) run(command string, args []string) error {
 }
 
 func (a *app) resolveTarget(selector string) (repository.Target, provider.Provider, error) {
-	target, err := repository.Resolve(repository.Options{
-		Provider: a.opts.provider,
-		Host:     a.opts.host,
-		Repo:     a.opts.repo,
-		Remote:   a.opts.remote,
-	}, selector)
+	target, err := repository.Resolve(a.repositoryOptions(), selector)
 	if err != nil {
 		return repository.Target{}, nil, err
 	}
@@ -132,6 +131,27 @@ func (a *app) resolveTarget(selector string) (repository.Target, provider.Provid
 		target.Number = pull.Number
 	}
 	return target, adapter, nil
+}
+
+func (a *app) resolveRepository() (provider.Repository, provider.Provider, error) {
+	target, err := repository.Resolve(a.repositoryOptions(), "")
+	if err != nil {
+		return provider.Repository{}, nil, err
+	}
+	adapter, err := a.registry.Create(target.Repository.Provider, target.Repository.Host)
+	if err != nil {
+		return provider.Repository{}, nil, err
+	}
+	return target.Repository, adapter, nil
+}
+
+func (a *app) repositoryOptions() repository.Options {
+	return repository.Options{
+		Provider: a.opts.provider,
+		Host:     a.opts.host,
+		Repo:     a.opts.repo,
+		Remote:   a.opts.remote,
+	}
 }
 
 func selector(args []string) (string, error) {
@@ -212,9 +232,11 @@ Global flags must precede COMMAND:
   --dry-run         Preview mutations
 
 Commands:
+  create             Create a pull request from the current branch
   inspect [PR]      PR, reviews, threads, and checks
   edit [PR]         Edit title, body, or state
   reviews [PR]      Reviews and review threads
+  approve [PR]      Submit an approval review
   reply [PR]        Reply to a review thread
   resolve [PR]      Resolve a review thread
   checks [PR]       Check runs and commit statuses

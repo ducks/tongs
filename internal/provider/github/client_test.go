@@ -55,6 +55,89 @@ func TestGetPullRequest(t *testing.T) {
 	}
 }
 
+func TestCreatePullRequestUsesRepositoryDefaultBranch(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/repos/acme/widget":
+			_, _ = response.Write([]byte(`{"default_branch":"trunk"}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/repos/acme/widget/pulls":
+			var payload map[string]interface{}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if payload["title"] != "Add feature" || payload["head"] != "feature" || payload["base"] != "trunk" || payload["draft"] != true {
+				t.Fatalf("unexpected payload: %#v", payload)
+			}
+			_, _ = response.Write([]byte(`{
+            "number": 13,
+            "node_id": "PR_created",
+            "title": "Add feature",
+            "state": "open",
+            "draft": true,
+            "html_url": "https://github.com/acme/widget/pull/13",
+            "user": {"login": "ducks"},
+            "base": {"ref": "trunk"},
+            "head": {"ref": "feature", "sha": "def456"},
+            "created_at": "2026-08-20T00:00:00Z",
+            "updated_at": "2026-08-20T00:00:00Z"
+          }`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	pull, err := testClient(server).Create(context.Background(), provider.Repository{Owner: "acme", Name: "widget"}, provider.CreateInput{
+		Title: "Add feature", HeadBranch: "feature", Draft: true,
+	})
+	if err != nil {
+		t.Fatalf("Create returned an error: %v", err)
+	}
+	if requests != 2 || pull.Number != 13 || pull.BaseBranch != "trunk" || !pull.Draft {
+		t.Fatalf("unexpected pull request: %#v", pull)
+	}
+}
+
+func TestApprovePullRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/repos/acme/widget/pulls/12/reviews" {
+			http.NotFound(response, request)
+			return
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload["event"] != "APPROVE" || payload["body"] != "Looks good" || payload["commit_id"] != "abc123" {
+			t.Fatalf("unexpected payload: %#v", payload)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{
+          "id": 15,
+          "node_id": "PRR_approved",
+          "user": {"login": "ducks"},
+          "body": "Looks good",
+          "state": "APPROVED",
+          "commit_id": "abc123",
+          "submitted_at": "2026-08-20T00:00:00Z"
+        }`))
+	}))
+	defer server.Close()
+
+	review, err := testClient(server).Approve(context.Background(), provider.Repository{Owner: "acme", Name: "widget"}, 12, provider.ApprovalInput{
+		Body: "Looks good", ExpectedSHA: "abc123",
+	})
+	if err != nil {
+		t.Fatalf("Approve returned an error: %v", err)
+	}
+	if review.State != "approved" || review.CommitID != "abc123" || review.Author.Login != "ducks" {
+		t.Fatalf("unexpected review: %#v", review)
+	}
+}
+
 func TestChecksCombinesCheckRunsAndStatuses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")

@@ -2,11 +2,69 @@ package cli
 
 import (
 	"flag"
+	"path"
 	"strings"
 
 	"github.com/ducks/tongs/internal/provider"
 	"github.com/ducks/tongs/internal/repository"
 )
+
+func (a *app) create(args []string) error {
+	var title, body, bodyFile, head, base string
+	var draft bool
+	set, err := parseFlags("create", args, func(set *flag.FlagSet) {
+		set.StringVar(&title, "title", "", "pull request title")
+		set.StringVar(&body, "body", "", "pull request body")
+		set.StringVar(&bodyFile, "body-file", "", "read body from a file, or - for stdin")
+		set.StringVar(&head, "head", "", "head branch (default: current branch)")
+		set.StringVar(&base, "base", "", "base branch (default: repository default)")
+		set.BoolVar(&draft, "draft", false, "create as a draft")
+	})
+	if err != nil {
+		return err
+	}
+	if len(set.Args()) != 0 {
+		return usagef("create does not accept a pull request selector")
+	}
+	if strings.TrimSpace(title) == "" {
+		return usagef("create requires --title")
+	}
+	if head == "" {
+		head, err = repository.CurrentBranch()
+		if err != nil {
+			return err
+		}
+	}
+	bodyValue, err := readValue(body, bodyFile, a.stdin)
+	if err != nil {
+		return err
+	}
+
+	repo, adapter, err := a.resolveRepository()
+	if err != nil {
+		return err
+	}
+	input := provider.CreateInput{
+		Title:      title,
+		Body:       bodyValue,
+		HeadBranch: head,
+		BaseBranch: base,
+		Draft:      draft,
+	}
+	if a.opts.dryRun {
+		return a.out.success(provider.MutationPreview{
+			Provider: repo.Provider,
+			Action:   "create",
+			Target:   path.Join(repo.Host, repo.Owner, repo.Name),
+			Input:    input,
+		}, true)
+	}
+	result, err := adapter.Create(a.ctx, repo, input)
+	if err != nil {
+		return err
+	}
+	return a.out.success(result, false)
+}
 
 func (a *app) inspect(args []string) error {
 	selector, err := selector(args)
@@ -98,6 +156,47 @@ func (a *app) reviews(args []string) error {
 		"reviews":    reviews,
 		"threads":    threads,
 	}, false)
+}
+
+func (a *app) approve(args []string) error {
+	var body, bodyFile, expectedSHA string
+	set, err := parseFlags("approve", args, func(set *flag.FlagSet) {
+		set.StringVar(&body, "body", "", "approval body")
+		set.StringVar(&bodyFile, "body-file", "", "read approval body from a file, or - for stdin")
+		set.StringVar(&expectedSHA, "sha", "", "require this head SHA")
+	})
+	if err != nil {
+		return err
+	}
+	selector, err := selector(set.Args())
+	if err != nil {
+		return err
+	}
+	bodyValue, err := readValue(body, bodyFile, a.stdin)
+	if err != nil {
+		return err
+	}
+
+	target, adapter, err := a.resolveTarget(selector)
+	if err != nil {
+		return err
+	}
+	if expectedSHA == "" {
+		pull, err := adapter.GetPullRequest(a.ctx, target.Repository, target.Number)
+		if err != nil {
+			return err
+		}
+		expectedSHA = pull.HeadSHA
+	}
+	input := provider.ApprovalInput{Body: bodyValue, ExpectedSHA: expectedSHA}
+	if a.opts.dryRun {
+		return a.preview(target, "approve", input)
+	}
+	result, err := adapter.Approve(a.ctx, target.Repository, target.Number, input)
+	if err != nil {
+		return err
+	}
+	return a.out.success(result, false)
 }
 
 func (a *app) reply(args []string) error {

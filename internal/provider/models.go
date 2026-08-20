@@ -103,6 +103,19 @@ type EditInput struct {
 	State *string `json:"state,omitempty"`
 }
 
+type CreateInput struct {
+	Title      string `json:"title"`
+	Body       string `json:"body,omitempty"`
+	HeadBranch string `json:"head_branch"`
+	BaseBranch string `json:"base_branch,omitempty"`
+	Draft      bool   `json:"draft"`
+}
+
+type ApprovalInput struct {
+	Body        string `json:"body,omitempty"`
+	ExpectedSHA string `json:"expected_sha,omitempty"`
+}
+
 type MergeInput struct {
 	Method      string `json:"method"`
 	Title       string `json:"title,omitempty"`
