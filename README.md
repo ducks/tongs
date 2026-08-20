@@ -1,5 +1,7 @@
 # Tongs
 
+**Typed Operations for Networked Git Services**
+
 Tongs is an agent-native command-line client for pull and merge requests. It provides stable JSON, non-interactive behavior, safe mutations, and first-class review-thread operations.
 
 It started because `gh` kept failing on unrelated GraphQL queries. Tongs uses REST by default and isolates GraphQL to operations that genuinely require it.
